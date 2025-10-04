@@ -1,5 +1,7 @@
 # JEPA LLM Fine-Tuning Toolkit
 
+![jepa_banner](jepa.png)
+
 This repository packages the training script for the original project into a reusable
 Python module with a configuration-driven command line interface.  It supports
 fine-tuning causal language models with an additional JEPA-style representation
