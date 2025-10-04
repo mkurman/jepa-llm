@@ -7,191 +7,73 @@ import os
 import shutil
 import time
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import List, Tuple
 
 import torch
-import yaml
-from transformers import (
-    DataCollatorForLanguageModeling,
-    Trainer,
-    TrainingArguments,
-)
+from transformers import DataCollatorForLanguageModeling, Trainer, TrainingArguments
 
 from .callbacks.profiler_flop_callback import ProfilerFLOPCallback
+from .config import Config, load_config
 from .dataset import load_and_prepare_dataset
 from .model_setup import setup_model_and_tokenizer
 from .trainers.representation_trainer import RepresentationTrainer
 from .utils import is_primary_process
 
 
-def _load_config_file(config_path: str) -> Dict[str, Any]:
-    with open(config_path, "r", encoding="utf-8") as handle:
-        data = yaml.safe_load(handle) or {}
-    if not isinstance(data, dict):
-        raise ValueError("Configuration file must contain a mapping of options")
-    return data
-
-
 def build_argument_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Fine-tune Gemma-3-1B")
-    parser.add_argument("--config", type=str, default=None, help="YAML configuration file")
-    parser.add_argument("--train_file", type=str, help="Path to training JSONL file")
-    parser.add_argument("--eval_file", type=str, help="Path to evaluation JSONL file")
+    """Create an argument parser that only accepts the configuration file."""
+
+    parser = argparse.ArgumentParser(description="Fine-tune JEPA-enhanced LLMs")
     parser.add_argument(
-        "--data_file", type=str, help="Path to single JSONL file (will be split)"
-    )
-    parser.add_argument(
-        "--model_name",
-        type=str,
-        default="meta-llama/Llama-3.2-1B-Instruct",
-        help="Model name/path",
-    )
-    parser.add_argument(
-        "--output_dir", type=str, default="./llama3-1b-fted", help="Output directory"
-    )
-    parser.add_argument(
-        "--max_length", type=int, default=512, help="Maximum sequence length"
-    )
-    parser.add_argument(
-        "--batch_size", type=int, default=4, help="Per device batch size"
-    )
-    parser.add_argument(
-        "--max_items", type=int, default=None, help="Number of items from dataset"
-    )
-    parser.add_argument(
-        "--grad_accum", type=int, default=4, help="Gradient accumulation steps"
-    )
-    parser.add_argument(
-        "--learning_rate", type=float, default=2e-5, help="Learning rate"
-    )
-    parser.add_argument(
-        "--num_epochs", type=int, default=3, help="Number of training epochs"
-    )
-    parser.add_argument("--eval_steps", type=int, default=10, help="Evaluation steps")
-    parser.add_argument(
-        "--lora", action="store_true", help="Enable LoRA (default: full fine-tuning)"
-    )
-    parser.add_argument(
-        "--lora_rank", type=int, default=16, help="LoRA rank. Default: 16."
-    )
-    parser.add_argument(
-        "--eval_split",
-        type=float,
-        default=0.2,
-        help="Evaluation split ratio (if using single data file)",
-    )
-    parser.add_argument(
-        "--split_seed", type=int, default=42, help="Random seed for train/eval split"
-    )
-    parser.add_argument(
-        "--finetune_seed", type=int, default=42, help="Random seed for fine-tuning"
-    )
-    parser.add_argument(
-        "--predictors", type=int, default=0, help="Number of predictor tokens"
-    )
-    parser.add_argument(
-        "--lbd", type=float, default=0.1, help="Lambda for similarity loss"
-    )
-    parser.add_argument("--gamma", type=float, default=1.0, help="Gamma for LLM loss")
-    parser.add_argument(
-        "--last_token",
-        type=int,
-        default=-1,
-        help="Index of last token, -1 is '<|eot|>'",
-    )
-    parser.add_argument(
-        "--debug", type=int, default=0, help="Debug level. 0 means no debug"
-    )
-    parser.add_argument(
-        "--regular", action="store_true", help="Use regular transformer."
-    )
-    parser.add_argument(
-        "--track_flop", action="store_true", help="Whether to track FLOPs."
-    )
-    parser.add_argument(
-        "--pretrain", action="store_true", help="Whether to pretrain from scratch."
-    )
-    parser.add_argument(
-        "--train_all",
-        action="store_true",
-        help="Whether to compute loss from all tokens.",
-    )
-    parser.add_argument(
-        "--plain",
-        action="store_true",
-        help="When set, do not apply chat format.",
-    )
-    parser.add_argument(
-        "--additive_mask",
-        action="store_true",
-        help="Use an additive mask to compute both user and assistant in 1 forward pass.",
-    )
-    parser.add_argument(
-        "--memory_efficient",
-        action="store_true",
-        help=(
-            "Process sequences separately instead of concatenating them, reducing VRAM usage."
-        ),
+        "--config",
+        required=True,
+        help="Path to a YAML configuration file containing all run settings.",
     )
     return parser
 
 
-def parse_arguments(
-    argv: List[str] | None = None,
-) -> Tuple[argparse.Namespace, argparse.ArgumentParser]:
-    parser = build_argument_parser()
-    base_parser = argparse.ArgumentParser(add_help=False)
-    base_parser.add_argument("--config", type=str, default=None)
-    config_args, remaining = base_parser.parse_known_args(argv)
+def _validate_config(config: Config) -> None:
+    dataset_cfg = config.dataset
+    training_cfg = config.training
 
-    config_defaults: Dict[str, Any] = {}
+    has_train_split = bool(dataset_cfg.train_file)
+    has_combined_file = bool(dataset_cfg.data_file)
 
-    if config_args.config:
-        config_defaults = _load_config_file(config_args.config)
-        config_defaults.setdefault("config", config_args.config)
+    if has_train_split == has_combined_file:
+        raise ValueError("Configuration must provide either 'train_file' or 'data_file'.")
 
-    if config_defaults:
-        valid_options = {action.dest for action in parser._actions if action.dest}
-        filtered_defaults = {
-            key: value for key, value in config_defaults.items() if key in valid_options
-        }
-        parser.set_defaults(**filtered_defaults)
-
-    args = parser.parse_args(remaining)
-    return args, parser
+    if training_cfg.memory_efficient and training_cfg.additive_mask:
+        raise ValueError("'memory_efficient' and 'additive_mask' modes are mutually exclusive.")
 
 
-def _validate_args(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
-    if not args.train_file and not args.data_file:
-        parser.error("Must provide either --train_file or --data_file")
-
-    if args.train_file and args.data_file:
-        parser.error("Cannot use both --train_file and --data_file. Choose one.")
-
-    if args.memory_efficient and args.additive_mask:
-        parser.error("Cannot use both --memory_efficient and --additive_mask. Choose one.")
-
-
-def _log_startup(args: argparse.Namespace) -> None:
+def _log_startup(config: Config) -> None:
     if not is_primary_process():
         return
 
+    dataset_cfg = config.dataset
+    model_cfg = config.model
+    training_cfg = config.training
+
     print("=== Fine-tuning Script ===")
-    if args.train_file:
-        print(f"Train file: {args.train_file}")
-        if args.eval_file:
-            print(f"Eval file: {args.eval_file}")
+
+    if dataset_cfg.train_file:
+        print(f"Train file: {dataset_cfg.train_file}")
+        if dataset_cfg.eval_file:
+            print(f"Eval file: {dataset_cfg.eval_file}")
         else:
             print("No eval file provided - training without evaluation")
     else:
-        print(f"Data file: {args.data_file} (will split {args.eval_split:.1%} for eval)")
+        print(
+            f"Data file: {dataset_cfg.data_file} (will split {dataset_cfg.eval_split:.1%} for eval)"
+        )
 
-    print(f"Model: {args.model_name}")
-    print(f"Output: {args.output_dir}")
-    print(f"Using LoRA: {args.lora}")
-    print(f"LoRA rank: {args.lora_rank}")
-    print(f"Memory efficient mode: {args.memory_efficient}")
-    if args.memory_efficient:
+    print(f"Model: {model_cfg.name}")
+    print(f"Output: {training_cfg.output_dir}")
+    print(f"Using LoRA: {model_cfg.use_lora}")
+    if model_cfg.use_lora:
+        print(f"LoRA rank: {model_cfg.lora_rank}")
+    print(f"Memory efficient mode: {training_cfg.memory_efficient}")
+    if training_cfg.memory_efficient:
         print("  → Will process sequences separately to reduce VRAM usage by 2-3x")
 
 
@@ -208,63 +90,79 @@ def _init_distributed_if_needed() -> None:
         torch.cuda.set_device(local_rank)
 
 
-def _prepare_datasets(args: argparse.Namespace, tokenizer) -> tuple:
-    if args.train_file:
+def _prepare_datasets(config: Config, tokenizer) -> Tuple[object, object]:
+    dataset_cfg = config.dataset
+    model_cfg = config.model
+    general_cfg = config.general
+    training_cfg = config.training
+
+    if dataset_cfg.train_file:
         if is_primary_process():
-            print(f"Loading training data from {args.train_file}")
+            print(f"Loading training data from {dataset_cfg.train_file}")
         train_dataset = load_and_prepare_dataset(
-            args.train_file,
+            dataset_cfg.train_file,
             tokenizer,
-            args.model_name,
-            args.max_length,
-            predictors=args.predictors,
-            regular=args.regular,
-            debug=args.debug,
-            train_all=args.train_all,
-            plain=args.plain,
-            max_items=args.max_items,
-            seed=args.finetune_seed,
+            model_cfg.name,
+            dataset_cfg.max_length,
+            debug=general_cfg.debug,
+            predictors=dataset_cfg.predictors,
+            regular=training_cfg.regular,
+            train_all=dataset_cfg.train_all,
+            plain=dataset_cfg.plain,
+            max_items=dataset_cfg.max_items,
+            seed=general_cfg.finetune_seed,
+            remove_thinking=dataset_cfg.remove_thinking,
+            cache_dir=dataset_cfg.cache_dir,
         )
 
-        if args.eval_file:
+        if dataset_cfg.eval_file:
             if is_primary_process():
-                print(f"Loading evaluation data from {args.eval_file}")
+                print(f"Loading evaluation data from {dataset_cfg.eval_file}")
             eval_dataset = load_and_prepare_dataset(
-                args.eval_file,
+                dataset_cfg.eval_file,
                 tokenizer,
-                args.model_name,
-                args.max_length,
-                regular=args.regular,
-                debug=args.debug,
-                train_all=args.train_all,
-                plain=args.plain,
-                max_items=args.max_items,
-                seed=args.finetune_seed,
+                model_cfg.name,
+                dataset_cfg.max_length,
+                debug=general_cfg.debug,
+                predictors=dataset_cfg.predictors,
+                regular=training_cfg.regular,
+                train_all=dataset_cfg.train_all,
+                plain=dataset_cfg.plain,
+                max_items=dataset_cfg.max_items,
+                seed=general_cfg.finetune_seed,
+                remove_thinking=dataset_cfg.remove_thinking,
+                cache_dir=dataset_cfg.cache_dir,
             )
         else:
             eval_dataset = None
             if is_primary_process():
                 print("No evaluation file provided")
     else:
+        if dataset_cfg.data_file is None:
+            raise ValueError("'data_file' must be provided when 'train_file' is omitted.")
         if is_primary_process():
-            print(f"Loading data from {args.data_file} and splitting...")
+            print(f"Loading data from {dataset_cfg.data_file} and splitting...")
         full_dataset = load_and_prepare_dataset(
-            args.data_file,
+            dataset_cfg.data_file,
             tokenizer,
-            args.model_name,
-            args.max_length,
-            predictors=args.predictors,
-            regular=args.regular,
-            debug=args.debug,
-            train_all=args.train_all,
-            plain=args.plain,
-            max_items=args.max_items,
-            seed=args.finetune_seed,
+            model_cfg.name,
+            dataset_cfg.max_length,
+            debug=general_cfg.debug,
+            predictors=dataset_cfg.predictors,
+            regular=training_cfg.regular,
+            train_all=dataset_cfg.train_all,
+            plain=dataset_cfg.plain,
+            max_items=dataset_cfg.max_items,
+            seed=general_cfg.finetune_seed,
+            remove_thinking=dataset_cfg.remove_thinking,
+            cache_dir=dataset_cfg.cache_dir,
         )
 
-        if args.eval_split > 0:
+        if dataset_cfg.eval_split > 0:
             split_dataset = full_dataset.train_test_split(
-                test_size=args.eval_split, seed=args.split_seed, shuffle=True
+                test_size=dataset_cfg.eval_split,
+                seed=dataset_cfg.split_seed,
+                shuffle=True,
             )
             train_dataset = split_dataset["train"]
             eval_dataset = split_dataset["test"]
@@ -283,27 +181,35 @@ def _prepare_datasets(args: argparse.Namespace, tokenizer) -> tuple:
 
 
 def _create_training_arguments(
-    args: argparse.Namespace, world_size: int, has_eval: bool
+    config: Config, world_size: int, has_eval: bool
 ) -> TrainingArguments:
-    eval_steps = args.eval_steps if not args.pretrain else args.eval_steps * 20
-    output_dir = os.path.abspath(args.output_dir)
+    training_cfg = config.training
+    model_cfg = config.model
+    general_cfg = config.general
+
+    eval_steps = (
+        training_cfg.eval_steps
+        if not model_cfg.pretrain
+        else training_cfg.eval_steps * 20
+    )
+    output_dir = os.path.abspath(training_cfg.output_dir)
     evaluation_strategy = "steps" if has_eval else "no"
     ddp_backend = "nccl" if world_size > 1 else None
 
     return TrainingArguments(
         output_dir=output_dir,
         overwrite_output_dir=True,
-        per_device_train_batch_size=args.batch_size,
-        per_device_eval_batch_size=args.batch_size,
-        gradient_accumulation_steps=args.grad_accum,
-        learning_rate=args.learning_rate,
-        num_train_epochs=args.num_epochs,
+        per_device_train_batch_size=training_cfg.batch_size,
+        per_device_eval_batch_size=training_cfg.batch_size,
+        gradient_accumulation_steps=training_cfg.grad_accum,
+        learning_rate=training_cfg.learning_rate,
+        num_train_epochs=training_cfg.num_epochs,
         evaluation_strategy=evaluation_strategy,
         eval_steps=eval_steps,
         save_strategy="steps",
         save_steps=eval_steps,
         save_total_limit=2,
-        logging_dir=f"{args.output_dir}/logs",
+        logging_dir=f"{training_cfg.output_dir}/logs",
         logging_steps=1,
         fp16=False,
         bf16=True,
@@ -320,8 +226,8 @@ def _create_training_arguments(
         load_best_model_at_end=has_eval,
         tf32=False,
         optim="adamw_8bit",
-        seed=args.finetune_seed,
-        data_seed=args.finetune_seed,
+        seed=general_cfg.finetune_seed,
+        data_seed=general_cfg.finetune_seed,
     )
 
 
@@ -343,10 +249,12 @@ def _save_model(
 
 
 def main(argv: List[str] | None = None) -> None:
-    args, parser = parse_arguments(argv)
-    _validate_args(args, parser)
+    parser = build_argument_parser()
+    cli_args = parser.parse_args(argv)
+    config = load_config(cli_args.config)
 
-    _log_startup(args)
+    _validate_config(config)
+    _log_startup(config)
 
     world_size = int(os.environ.get("WORLD_SIZE", 1))
 
@@ -356,18 +264,20 @@ def main(argv: List[str] | None = None) -> None:
     if is_primary_process():
         print("\n1. Loading model and tokenizer...")
     model, tokenizer = setup_model_and_tokenizer(
-        args.model_name,
-        use_lora=args.lora,
-        lora_rank=args.lora_rank,
-        pretrain=args.pretrain,
-        debug=args.debug,
-        seed=args.finetune_seed,
+        config.model.name,
+        use_lora=config.model.use_lora,
+        lora_rank=config.model.lora_rank,
+        pretrain=config.model.pretrain,
+        debug=config.general.debug,
+        seed=config.general.finetune_seed,
+        cache_dir=config.model.cache_dir,
+        trust_remote_code=config.model.trust_remote_code,
     )
 
     if is_primary_process():
         print("\n2. Loading and preparing dataset...")
 
-    train_dataset, eval_dataset = _prepare_datasets(args, tokenizer)
+    train_dataset, eval_dataset = _prepare_datasets(config, tokenizer)
 
     data_collator = DataCollatorForLanguageModeling(
         tokenizer=tokenizer,
@@ -375,13 +285,15 @@ def main(argv: List[str] | None = None) -> None:
         pad_to_multiple_of=None,
     )
 
-    training_args = _create_training_arguments(args, world_size, eval_dataset is not None)
+    training_args = _create_training_arguments(
+        config, world_size, eval_dataset is not None
+    )
 
-    callbacks = [ProfilerFLOPCallback()] if args.track_flop else []
+    callbacks = [ProfilerFLOPCallback()] if config.training.track_flop else []
 
-    if args.regular:
+    if config.training.regular:
         if is_primary_process():
-            print("\n3. Initializing regular trainer...")
+            print("\n3. Initialising regular trainer...")
         trainer = Trainer(
             model=model,
             args=training_args,
@@ -393,7 +305,7 @@ def main(argv: List[str] | None = None) -> None:
         )
     else:
         if is_primary_process():
-            print("\n3. Initializing representation trainer...")
+            print("\n3. Initialising representation trainer...")
         trainer = RepresentationTrainer(
             model=model,
             args=training_args,
@@ -402,15 +314,15 @@ def main(argv: List[str] | None = None) -> None:
             tokenizer=tokenizer,
             data_collator=data_collator,
             callbacks=callbacks,
-            lbd=args.lbd,
-            gamma=args.gamma,
-            last_token=args.last_token,
-            debug=args.debug,
-            additive_mask=args.additive_mask,
-            memory_efficient=args.memory_efficient,
+            lbd=config.training.lbd,
+            gamma=config.training.gamma,
+            last_token=config.training.last_token,
+            debug=config.general.debug,
+            additive_mask=config.training.additive_mask,
+            memory_efficient=config.training.memory_efficient,
         )
 
-    if is_primary_process() and args.lora:
+    if is_primary_process() and config.model.use_lora:
         print("=== PEFT Model Check ===")
         model.print_trainable_parameters()
         trainable_params = [
@@ -430,20 +342,20 @@ def main(argv: List[str] | None = None) -> None:
         if is_primary_process():
             print(f"Training failed with error: {error}")
             print(
-                "This might be due to FSDP/sharding issues. Try running with --lora flag for LoRA fine-tuning."
+                "This might be due to FSDP/sharding issues. Try running with LoRA enabled for a lighter configuration."
             )
         raise
 
     if is_primary_process():
         print("\n5. Saving final model...")
 
-    output_dir = Path(os.path.abspath(args.output_dir))
+    output_dir = Path(os.path.abspath(config.training.output_dir))
     retry_attempts = 3
     while retry_attempts > 0:
         try:
             shutil.rmtree(output_dir, ignore_errors=True)
             output_dir.mkdir(parents=True, exist_ok=True)
-            _save_model(trainer, model, tokenizer, output_dir, args.lora)
+            _save_model(trainer, model, tokenizer, output_dir, config.model.use_lora)
             break
         except Exception as error:
             if is_primary_process():
@@ -454,7 +366,7 @@ def main(argv: List[str] | None = None) -> None:
             time.sleep(10)
 
     if is_primary_process():
-        print(f"\n✅ Training completed! Model saved to {args.output_dir}")
+        print(f"\n✅ Training completed! Model saved to {config.training.output_dir}")
         print("\n🎉 Fine-tuning finished successfully!")
 
 

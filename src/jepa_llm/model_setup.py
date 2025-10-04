@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from typing import Tuple
+from typing import Optional, Tuple
 
 import torch
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
@@ -37,11 +37,19 @@ def setup_model_and_tokenizer(
     pretrain: bool = False,
     debug: int = 0,
     seed: int | None = None,
+    cache_dir: Optional[str] = None,
+    trust_remote_code: bool = True,
 ) -> Tuple[AutoModelForCausalLM, AutoTokenizer]:
     """Load tokenizer and model, applying optional LoRA fine-tuning adapters."""
 
+    tokenizer_kwargs = {"trust_remote_code": trust_remote_code}
+    if cache_dir:
+        tokenizer_kwargs["cache_dir"] = cache_dir
+
     if "apple/OpenELM" in model_name:
-        tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-2-7b-chat-hf")
+        tokenizer = AutoTokenizer.from_pretrained(
+            "meta-llama/Llama-2-7b-chat-hf", **tokenizer_kwargs
+        )
         tokenizer.chat_template = """{% for message in messages %}
 {% if message['role'] == 'user' %}
 {{ '<|user|>\n' + message['content'] + eos_token }}
@@ -55,7 +63,7 @@ def setup_model_and_tokenizer(
 {% endif %}
 {% endfor %}"""
     else:
-        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        tokenizer = AutoTokenizer.from_pretrained(model_name, **tokenizer_kwargs)
 
     if "microsoft/phi" in model_name:
         tokenizer.add_special_tokens({"bos_token": "<|startoftext|>"})
@@ -80,7 +88,10 @@ def setup_model_and_tokenizer(
     if pretrain:
         if seed is not None:
             torch.manual_seed(seed)
-        config = AutoConfig.from_pretrained(model_name)
+        config_kwargs = {"trust_remote_code": trust_remote_code}
+        if cache_dir:
+            config_kwargs["cache_dir"] = cache_dir
+        config = AutoConfig.from_pretrained(model_name, **config_kwargs)
         model = AutoModelForCausalLM.from_config(
             config,
             torch_dtype=torch.bfloat16,
@@ -102,9 +113,10 @@ def setup_model_and_tokenizer(
             model_name,
             torch_dtype=torch.bfloat16,
             device_map=device_map,
-            trust_remote_code=True,
+            trust_remote_code=trust_remote_code,
             low_cpu_mem_usage=True,
             use_cache=False,
+            cache_dir=cache_dir,
         )
 
     if new_tokens:

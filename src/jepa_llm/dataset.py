@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from functools import partial
-from typing import Any, Dict, List, Sequence
+from typing import Any, Dict, List, Optional, Sequence
 
 import torch
 from datasets import Dataset, load_dataset
@@ -67,6 +67,16 @@ def create_masked_labels(
             raise SystemExit(0)
 
     return labels
+
+
+def _clean_messages(record: Dict[str, Any], *, remove_thinking: bool) -> Dict[str, Any]:
+    cleaned_messages = []
+    for message in record["messages"]:
+        content = message["content"]
+        if remove_thinking:
+            content = remove_thinking_content(content)
+        cleaned_messages.append({"role": message["role"], "content": content.strip()})
+    return {"messages": cleaned_messages}
 
 
 def _tokenize_conversations(
@@ -226,17 +236,22 @@ def load_and_prepare_dataset(
     plain: bool = False,
     max_items: int | None = None,
     seed: int = 42,
+    remove_thinking: bool = True,
+    cache_dir: Optional[str] = None,
 ) -> Dataset:
     """Load the dataset file and return tokenized conversations."""
 
+    load_kwargs = {"data_files": data_file, "split": "train"}
+    if cache_dir:
+        load_kwargs["cache_dir"] = cache_dir
+
     if data_file.endswith(".jsonl"):
-        dataset = load_dataset("json", data_files=data_file, split="train")
+        dataset = load_dataset("json", **load_kwargs)
     elif data_file.endswith(".parquet"):
-        dataset = load_dataset("parquet", data_files=data_file, split="train")
+        dataset = load_dataset("parquet", **load_kwargs)
     else:
-        dataset = load_dataset(
-            data_file, split="train", cache_dir="/home/mkurman/gitlab/ai/hf_cache"
-        )
+        extra_kwargs = {"cache_dir": cache_dir} if cache_dir else {}
+        dataset = load_dataset(data_file, split="train", **extra_kwargs)
 
     if is_primary_process():
         print(f"Loaded {len(dataset)} examples from {data_file}")
@@ -252,16 +267,10 @@ def load_and_prepare_dataset(
             }
         )
 
+    clean_fn = partial(_clean_messages, remove_thinking=remove_thinking)
+
     dataset = dataset.map(
-        lambda record: {
-            "messages": [
-                {
-                    "role": message["role"],
-                    "content": remove_thinking_content(message["content"]).strip(),
-                }
-                for message in record["messages"]
-            ]
-        },
+        clean_fn,
         num_proc=24,
     ).filter(
         lambda record: record["messages"] is not None

@@ -1,0 +1,39 @@
+general:
+  debug: 0
+  finetune_seed: 42
+
+model:
+  name: meta-llama/Llama-3.2-1B-Instruct
+  use_lora: true
+  lora_rank: 16
+  pretrain: false
+  cache_dir: null
+  trust_remote_code: true
+
+dataset:
+  train_file: /path/to/train.jsonl
+  eval_file: /path/to/eval.jsonl
+  eval_split: 0.2
+  split_seed: 42
+  max_items: null
+  max_length: 512
+  predictors: 0
+  train_all: false
+  plain: false
+  remove_thinking: true
+  cache_dir: null
+
+training:
+  output_dir: ./artifacts/llama3
+  batch_size: 4
+  grad_accum: 4
+  learning_rate: 0.00002
+  num_epochs: 3
+  eval_steps: 10
+  lbd: 0.1
+  gamma: 1.0
+  last_token: -1
+  regular: false
+  track_flop: false
+  additive_mask: false
+  memory_efficient: false
