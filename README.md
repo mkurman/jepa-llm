@@ -72,20 +72,23 @@ parameters:
 
 ### `dataset`
 
-- `train_file` — path to the JSONL file containing training samples.
-- `eval_file` — path to the JSONL file containing evaluation samples.
-- `data_file` — alternative single JSONL file used when train and eval are
-  split dynamically.
-- `eval_split` — fraction of examples reserved for evaluation when using a
-  combined dataset file.
-- `split_seed` — seed controlling the deterministic split of combined datasets.
-- `max_items` — limits the number of examples loaded for quick experiments.
-- `max_length` — truncation length applied during tokenisation.
-- `predictors` — number of asynchronous dataloader worker processes.
-- `train_all` — toggles training on the full dataset without a validation split.
-- `plain` — forces the plain Hugging Face trainer without the JEPA loss.
-- `remove_thinking` — strips hidden reasoning tags from the dataset when `true`.
-- `cache_dir` — local cache directory for processed dataset artefacts.
+- `train_file` — dataset identifier or path used for the training split when
+  supplied directly.
+- `eval_file` — optional dataset identifier/path for the evaluation split.
+- `data_file` — single dataset to be split on the fly when dedicated train/eval
+  splits are not available.
+- `eval_split` — fraction reserved for evaluation when splitting `data_file`.
+- `split_seed` — seed applied to the deterministic split of `data_file`.
+- `max_items` — optional cap on training examples (handy for smoke tests).
+- `max_eval_items` — optional cap applied only to the evaluation dataset.
+- `config_name` — optional Hugging Face dataset configuration name.
+- `train_split` — optional split name when pulling remote datasets.
+- `max_length` — maximum sequence length for tokenisation.
+- `predictors` — number of predictor tokens appended to the user prompt.
+- `train_all` — compute supervised loss over every token instead of assistant-only.
+- `plain` — bypass the chat template and feed raw message text to the tokenizer.
+- `remove_thinking` — strip hidden reasoning tags like `<think>` before tokenising.
+- `cache_dir` — location where dataset artefacts should be cached.
 
 ### `training`
 
@@ -105,6 +108,9 @@ parameters:
 - `additive_mask` — switches the attention mask computation to the additive
   form; incompatible with memory-efficient mode.
 - `memory_efficient` — enables chunked attention to reduce peak VRAM usage.
+- `dtype` — computation precision requested from the trainer (`bf16`, `fp16`,
+  or `float32`).
+- `optimizer` — optimiser identifier passed to the Hugging Face trainer.
 
 When training, we recommend enabling the memory-efficient path to reduce peak
 VRAM usage and maintain consistent results. The trade-offs are:
