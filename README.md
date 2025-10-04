@@ -132,3 +132,6 @@ PYTHONPATH=src python -m compileall src/jepa_llm
 
 The repository uses `pyproject.toml` for packaging metadata and exposes the
 `jepa-llm` entry point for convenience.
+
+# Credits
+To view the original version, please visit this repository: [https://github.com/rbalestr-lab/llm-jepa](https://github.com/rbalestr-lab/llm-jepa).
