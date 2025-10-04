@@ -59,10 +59,14 @@ def _validate_config(config: Config) -> None:
     has_combined_file = bool(dataset_cfg.data_file)
 
     if has_train_split == has_combined_file:
-        raise ValueError("Configuration must provide either 'train_file' or 'data_file'.")
+        raise ValueError(
+            "Configuration must provide either 'train_file' or 'data_file'."
+        )
 
     if training_cfg.memory_efficient and training_cfg.additive_mask:
-        raise ValueError("'memory_efficient' and 'additive_mask' modes are mutually exclusive.")
+        raise ValueError(
+            "'memory_efficient' and 'additive_mask' modes are mutually exclusive."
+        )
 
 
 def _log_startup(config: Config) -> None:
@@ -95,7 +99,9 @@ def _log_startup(config: Config) -> None:
         logger.info("LoRA rank: %s", model_cfg.lora_rank)
     logger.info("Memory efficient mode: %s", training_cfg.memory_efficient)
     if training_cfg.memory_efficient:
-        logger.info("  → Will process sequences separately to reduce VRAM usage by 2-3x")
+        logger.info(
+            "  → Will process sequences separately to reduce VRAM usage by 2-3x"
+        )
 
 
 def _init_distributed_if_needed() -> None:
@@ -160,7 +166,7 @@ def _prepare_datasets(config: Config, tokenizer) -> Tuple[object, object]:
                 remove_thinking=dataset_cfg.remove_thinking,
                 cache_dir=dataset_cfg.cache_dir,
                 dataset_split=_resolve_dataset_split(
-                    dataset_cfg.eval_file, None, default="eval"
+                    dataset_cfg.eval_file, None, default="test"
                 ),
                 config_name=dataset_cfg.config_name,
             )
@@ -170,11 +176,11 @@ def _prepare_datasets(config: Config, tokenizer) -> Tuple[object, object]:
                 logger.info("No evaluation file provided")
     else:
         if dataset_cfg.data_file is None:
-            raise ValueError("'data_file' must be provided when 'train_file' is omitted.")
-        if is_primary_process():
-            logger.info(
-                "Loading data from %s and splitting...", dataset_cfg.data_file
+            raise ValueError(
+                "'data_file' must be provided when 'train_file' is omitted."
             )
+        if is_primary_process():
+            logger.info("Loading data from %s and splitting...", dataset_cfg.data_file)
         full_dataset = load_and_prepare_dataset(
             dataset_cfg.data_file,
             tokenizer,
@@ -371,7 +377,9 @@ def main(argv: List[str] | None = None) -> None:
         logger.info("=== PEFT Model Check ===")
         model.print_trainable_parameters()
         trainable_params = [
-            name for name, parameter in model.named_parameters() if parameter.requires_grad
+            name
+            for name, parameter in model.named_parameters()
+            if parameter.requires_grad
         ]
         logger.info("Trainable parameters: %s", len(trainable_params))
         if not trainable_params:
@@ -414,7 +422,9 @@ def main(argv: List[str] | None = None) -> None:
 
     if is_primary_process():
         logger.info("")
-        logger.info("✅ Training completed! Model saved to %s", config.training.output_dir)
+        logger.info(
+            "✅ Training completed! Model saved to %s", config.training.output_dir
+        )
         logger.info("")
         logger.info("🎉 Fine-tuning finished successfully!")
 
