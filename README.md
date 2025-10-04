@@ -98,6 +98,8 @@ parameters:
 - `learning_rate` — base learning rate for the optimiser.
 - `num_epochs` — maximum number of epochs to train.
 - `eval_steps` — interval (in optimiser steps) between evaluation runs.
+- `save_total_limit` — maximum number of checkpoints retained on disk.
+- `logging_steps` — interval (in optimiser steps) between log updates.
 - `lbd` — JEPA representation loss weight.
 - `gamma` — JEPA predictor loss weight.
 - `last_token` — token index used when computing the JEPA objective (`-1`

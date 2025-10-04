@@ -117,6 +117,12 @@ class TrainingConfig:
     eval_steps: int = 10
     """Frequency (in steps) of evaluation and checkpointing."""
 
+    save_total_limit: int = 2
+    """Maximum number of checkpoints to retain."""
+
+    logging_steps: int = 1
+    """Interval between logging updates emitted by the trainer."""
+
     lbd: float = 0.1
     """Weight applied to the JEPA similarity loss component."""
 

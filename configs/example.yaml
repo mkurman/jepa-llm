@@ -34,6 +34,8 @@ training:
   learning_rate: 0.00002
   num_epochs: 3
   eval_steps: 10 # save_steps too
+  save_total_limit: 2
+  logging_steps: 1
   lbd: 0.1
   gamma: 1.0
   last_token: -1
