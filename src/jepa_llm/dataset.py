@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from functools import partial
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Set
 
 import torch
 from datasets import Dataset, load_dataset
@@ -14,6 +14,27 @@ from .text_cleanup import remove_thinking_content
 from .utils import is_primary_process
 
 Message = Dict[str, str]
+
+
+INPUT_COLUMN_CANDIDATES = [
+    "question",
+    "input",
+    "instruction",
+    "prompt",
+]
+
+OUTPUT_COLUMN_CANDIDATES = [
+    "response",
+    "output",
+    "completion",
+    "answer",
+]
+
+SYSTEM_COLUMN_CANDIDATES = [
+    "system_prompt",
+    "system",
+    "system_message",
+]
 
 
 def create_labels_for_all(input_ids: Sequence[int], attention_mask: Sequence[int]) -> List[int]:
@@ -256,16 +277,7 @@ def load_and_prepare_dataset(
     if is_primary_process():
         print(f"Loaded {len(dataset)} examples from {data_file}")
 
-    if "question" in dataset.column_names:
-        dataset = dataset.map(
-            lambda record: {
-                "messages": [
-                    {"role": "system", "content": record["system_prompt"]},
-                    {"role": "user", "content": record["question"]},
-                    {"role": "assistant", "content": record["response"]},
-                ]
-            }
-        )
+    dataset = _ensure_messages_column(dataset)
 
     clean_fn = partial(_clean_messages, remove_thinking=remove_thinking)
 
@@ -304,6 +316,60 @@ def load_and_prepare_dataset(
     )
 
     return tokenized_dataset
+
+
+def _find_first_column(columns: Set[str], candidates: Sequence[str]) -> Optional[str]:
+    for candidate in candidates:
+        if candidate in columns:
+            return candidate
+    return None
+
+
+def _ensure_messages_column(dataset: Dataset) -> Dataset:
+    columns: Set[str] = set(dataset.column_names)
+
+    if "messages" in columns:
+        return dataset
+
+    if "conversations" in columns and "messages" not in columns:
+        dataset = dataset.rename_column("conversations", "messages")
+        columns = set(dataset.column_names)
+        if "messages" in columns:
+            return dataset
+
+    input_column = _find_first_column(columns, INPUT_COLUMN_CANDIDATES)
+    output_column = _find_first_column(columns, OUTPUT_COLUMN_CANDIDATES)
+
+    if input_column and output_column:
+        system_column = _find_first_column(columns, SYSTEM_COLUMN_CANDIDATES)
+
+        def map_record(
+            record: Dict[str, Any],
+            *,
+            system_column: Optional[str] = system_column,
+            input_column: str = input_column,
+            output_column: str = output_column,
+        ) -> Dict[str, Any]:
+            messages: List[Message] = []
+
+            if system_column:
+                system_content = record.get(system_column)
+                if system_content:
+                    messages.append({"role": "system", "content": system_content})
+
+            user_content = record.get(input_column)
+            if user_content:
+                messages.append({"role": "user", "content": user_content})
+
+            assistant_content = record.get(output_column)
+            if assistant_content:
+                messages.append({"role": "assistant", "content": assistant_content})
+
+            return {"messages": messages}
+
+        dataset = dataset.map(map_record)
+
+    return dataset
 
 
 __all__ = [
