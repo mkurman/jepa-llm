@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jepa-llm"
+version = "0.1.0"
+description = "Fine-tuning utilities for JEPA-style language models"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [{ name = "JEPA Contributors" }]
+dependencies = [
+    "torch",
+    "transformers",
+    "datasets",
+    "peft",
+    "pyyaml",
+]
+
+[project.scripts]
+jepa-llm = "jepa_llm.cli:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
