@@ -166,7 +166,7 @@ def _tokenize_conversations(
         user_labels_list.append([-100] * len(tokenized_user["input_ids"]))
         user_attention_mask_list.append(tokenized_user["attention_mask"])
 
-        assistant_messages = get_assistant_messages(model_name, "", messages)
+        assistant_messages = get_assistant_messages(model_name, messages)
         if plain:
             formatted_chat_assistant = assistant_messages[0]["content"]
         else:

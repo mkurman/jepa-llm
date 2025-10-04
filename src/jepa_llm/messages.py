@@ -24,12 +24,8 @@ def get_user_messages(model_name: str, messages: Sequence[Message]) -> List[Mess
     return copy.deepcopy(messages)[1:2]
 
 
-def get_assistant_messages(
-    model_name: str, dataset: str, messages: Sequence[Message]
-) -> List[Message]:
-    """Return assistant messages formatted for the specified model and dataset."""
-    del dataset  # Dataset is unused but kept for signature compatibility.
-
+def get_assistant_messages(model_name: str, messages: Sequence[Message]) -> List[Message]:
+    """Return assistant messages formatted for the specified model."""
     if "google/gemma" in model_name:
         assistant_messages = copy.deepcopy(messages)[2:3]
         assistant_messages[0]["role"] = "user"
