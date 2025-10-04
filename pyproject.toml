@@ -10,11 +10,13 @@ readme = "README.md"
 requires-python = ">=3.9"
 authors = [{ name = "JEPA Contributors" }]
 dependencies = [
-    "torch",
-    "transformers",
-    "datasets",
-    "peft",
+    "torch>=2.2.0",
+    "transformers>=4.35.0",
+    "datasets>=2.14.0",
+    "peft>=0.6.0",
     "pyyaml",
+    "bitsandbytes>=0.41.0",
+    "accelerate>=0.24.0",
 ]
 
 [project.scripts]

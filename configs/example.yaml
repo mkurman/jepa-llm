@@ -30,7 +30,7 @@ training:
   grad_accum: 4
   learning_rate: 0.00002
   num_epochs: 3
-  eval_steps: 10
+  eval_steps: 10 # save_steps too
   lbd: 0.1
   gamma: 1.0
   last_token: -1

@@ -259,10 +259,14 @@ def load_and_prepare_dataset(
     seed: int = 42,
     remove_thinking: bool = True,
     cache_dir: Optional[str] = None,
+    dataset_split: Optional[str] = None,
+    config_name: Optional[str] = None,
 ) -> Dataset:
     """Load the dataset file and return tokenized conversations."""
 
-    load_kwargs = {"data_files": data_file, "split": "train"}
+    resolved_split = dataset_split or "train"
+
+    load_kwargs = {"data_files": data_file, "split": resolved_split}
     if cache_dir:
         load_kwargs["cache_dir"] = cache_dir
 
@@ -271,8 +275,12 @@ def load_and_prepare_dataset(
     elif data_file.endswith(".parquet"):
         dataset = load_dataset("parquet", **load_kwargs)
     else:
-        extra_kwargs = {"cache_dir": cache_dir} if cache_dir else {}
-        dataset = load_dataset(data_file, split="train", **extra_kwargs)
+        extra_kwargs: Dict[str, Any] = {"split": resolved_split}
+        if cache_dir:
+            extra_kwargs["cache_dir"] = cache_dir
+        if config_name:
+            extra_kwargs["name"] = config_name
+        dataset = load_dataset(data_file, **extra_kwargs)
 
     if is_primary_process():
         print(f"Loaded {len(dataset)} examples from {data_file}")

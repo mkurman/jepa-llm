@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import shutil
 import time
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 import torch
 from transformers import DataCollatorForLanguageModeling, Trainer, TrainingArguments
@@ -20,6 +21,9 @@ from .trainers.representation_trainer import RepresentationTrainer
 from .utils import is_primary_process
 
 
+logger = logging.getLogger(__name__)
+
+
 def build_argument_parser() -> argparse.ArgumentParser:
     """Create an argument parser that only accepts the configuration file."""
 
@@ -30,6 +34,21 @@ def build_argument_parser() -> argparse.ArgumentParser:
         help="Path to a YAML configuration file containing all run settings.",
     )
     return parser
+
+
+def _looks_like_local_path(path: str) -> bool:
+    candidate = Path(path)
+    return candidate.exists() or candidate.suffix != ""
+
+
+def _resolve_dataset_split(
+    path: str, requested_split: Optional[str], default: str
+) -> str:
+    if requested_split:
+        return requested_split
+    if _looks_like_local_path(path):
+        return "train"
+    return default
 
 
 def _validate_config(config: Config) -> None:
@@ -54,27 +73,29 @@ def _log_startup(config: Config) -> None:
     model_cfg = config.model
     training_cfg = config.training
 
-    print("=== Fine-tuning Script ===")
+    logger.info("=== Fine-tuning Script ===")
 
     if dataset_cfg.train_file:
-        print(f"Train file: {dataset_cfg.train_file}")
+        logger.info("Train file: %s", dataset_cfg.train_file)
         if dataset_cfg.eval_file:
-            print(f"Eval file: {dataset_cfg.eval_file}")
+            logger.info("Eval file: %s", dataset_cfg.eval_file)
         else:
-            print("No eval file provided - training without evaluation")
+            logger.info("No eval file provided - training without evaluation")
     else:
-        print(
-            f"Data file: {dataset_cfg.data_file} (will split {dataset_cfg.eval_split:.1%} for eval)"
+        logger.info(
+            "Data file: %s (will split %.1f%% for eval)",
+            dataset_cfg.data_file,
+            dataset_cfg.eval_split * 100,
         )
 
-    print(f"Model: {model_cfg.name}")
-    print(f"Output: {training_cfg.output_dir}")
-    print(f"Using LoRA: {model_cfg.use_lora}")
+    logger.info("Model: %s", model_cfg.name)
+    logger.info("Output: %s", training_cfg.output_dir)
+    logger.info("Using LoRA: %s", model_cfg.use_lora)
     if model_cfg.use_lora:
-        print(f"LoRA rank: {model_cfg.lora_rank}")
-    print(f"Memory efficient mode: {training_cfg.memory_efficient}")
+        logger.info("LoRA rank: %s", model_cfg.lora_rank)
+    logger.info("Memory efficient mode: %s", training_cfg.memory_efficient)
     if training_cfg.memory_efficient:
-        print("  → Will process sequences separately to reduce VRAM usage by 2-3x")
+        logger.info("  → Will process sequences separately to reduce VRAM usage by 2-3x")
 
 
 def _init_distributed_if_needed() -> None:
@@ -83,8 +104,10 @@ def _init_distributed_if_needed() -> None:
 
     if world_size > 1 and torch.cuda.is_available():
         if is_primary_process():
-            print(
-                f"Running with torchrun: world_size={world_size}, local_rank={local_rank}"
+            logger.info(
+                "Running with torchrun: world_size=%s, local_rank=%s",
+                world_size,
+                local_rank,
             )
         torch.distributed.init_process_group(backend="nccl")
         torch.cuda.set_device(local_rank)
@@ -98,7 +121,7 @@ def _prepare_datasets(config: Config, tokenizer) -> Tuple[object, object]:
 
     if dataset_cfg.train_file:
         if is_primary_process():
-            print(f"Loading training data from {dataset_cfg.train_file}")
+            logger.info("Loading training data from %s", dataset_cfg.train_file)
         train_dataset = load_and_prepare_dataset(
             dataset_cfg.train_file,
             tokenizer,
@@ -113,11 +136,15 @@ def _prepare_datasets(config: Config, tokenizer) -> Tuple[object, object]:
             seed=general_cfg.finetune_seed,
             remove_thinking=dataset_cfg.remove_thinking,
             cache_dir=dataset_cfg.cache_dir,
+            dataset_split=_resolve_dataset_split(
+                dataset_cfg.train_file, dataset_cfg.train_split, default="train"
+            ),
+            config_name=dataset_cfg.config_name,
         )
 
         if dataset_cfg.eval_file:
             if is_primary_process():
-                print(f"Loading evaluation data from {dataset_cfg.eval_file}")
+                logger.info("Loading evaluation data from %s", dataset_cfg.eval_file)
             eval_dataset = load_and_prepare_dataset(
                 dataset_cfg.eval_file,
                 tokenizer,
@@ -132,16 +159,22 @@ def _prepare_datasets(config: Config, tokenizer) -> Tuple[object, object]:
                 seed=general_cfg.finetune_seed,
                 remove_thinking=dataset_cfg.remove_thinking,
                 cache_dir=dataset_cfg.cache_dir,
+                dataset_split=_resolve_dataset_split(
+                    dataset_cfg.eval_file, None, default="eval"
+                ),
+                config_name=dataset_cfg.config_name,
             )
         else:
             eval_dataset = None
             if is_primary_process():
-                print("No evaluation file provided")
+                logger.info("No evaluation file provided")
     else:
         if dataset_cfg.data_file is None:
             raise ValueError("'data_file' must be provided when 'train_file' is omitted.")
         if is_primary_process():
-            print(f"Loading data from {dataset_cfg.data_file} and splitting...")
+            logger.info(
+                "Loading data from %s and splitting...", dataset_cfg.data_file
+            )
         full_dataset = load_and_prepare_dataset(
             dataset_cfg.data_file,
             tokenizer,
@@ -156,6 +189,10 @@ def _prepare_datasets(config: Config, tokenizer) -> Tuple[object, object]:
             seed=general_cfg.finetune_seed,
             remove_thinking=dataset_cfg.remove_thinking,
             cache_dir=dataset_cfg.cache_dir,
+            dataset_split=_resolve_dataset_split(
+                dataset_cfg.data_file, dataset_cfg.train_split, default="train"
+            ),
+            config_name=dataset_cfg.config_name,
         )
 
         if dataset_cfg.eval_split > 0:
@@ -171,11 +208,11 @@ def _prepare_datasets(config: Config, tokenizer) -> Tuple[object, object]:
             eval_dataset = None
 
     if is_primary_process():
-        print(f"Train samples: {len(train_dataset)}")
+        logger.info("Train samples: %s", len(train_dataset))
         if eval_dataset:
-            print(f"Eval samples: {len(eval_dataset)}")
+            logger.info("Eval samples: %s", len(eval_dataset))
         else:
-            print("No evaluation dataset")
+            logger.info("No evaluation dataset")
 
     return train_dataset, eval_dataset
 
@@ -187,14 +224,16 @@ def _create_training_arguments(
     model_cfg = config.model
     general_cfg = config.general
 
-    eval_steps = (
-        training_cfg.eval_steps
-        if not model_cfg.pretrain
-        else training_cfg.eval_steps * 20
-    )
+    eval_steps = training_cfg.eval_steps
     output_dir = os.path.abspath(training_cfg.output_dir)
     evaluation_strategy = "steps" if has_eval else "no"
     ddp_backend = "nccl" if world_size > 1 else None
+
+    dtype = training_cfg.dtype.lower()
+    use_fp16 = dtype == "fp16"
+    use_bf16 = dtype == "bf16"
+    bf16_full_eval = use_bf16
+    use_tf32 = dtype == "float32"
 
     return TrainingArguments(
         output_dir=output_dir,
@@ -204,16 +243,16 @@ def _create_training_arguments(
         gradient_accumulation_steps=training_cfg.grad_accum,
         learning_rate=training_cfg.learning_rate,
         num_train_epochs=training_cfg.num_epochs,
-        evaluation_strategy=evaluation_strategy,
+        eval_strategy=evaluation_strategy,
         eval_steps=eval_steps,
         save_strategy="steps",
         save_steps=eval_steps,
         save_total_limit=2,
         logging_dir=f"{training_cfg.output_dir}/logs",
         logging_steps=1,
-        fp16=False,
-        bf16=True,
-        bf16_full_eval=True,
+        fp16=use_fp16,
+        bf16=use_bf16,
+        bf16_full_eval=bf16_full_eval,
         gradient_checkpointing=False,
         dataloader_drop_last=True,
         dataloader_num_workers=0,
@@ -224,8 +263,8 @@ def _create_training_arguments(
         report_to="none",
         remove_unused_columns=False,
         load_best_model_at_end=has_eval,
-        tf32=False,
-        optim="adamw_8bit",
+        tf32=use_tf32,
+        optim=training_cfg.optimizer,
         seed=general_cfg.finetune_seed,
         data_seed=general_cfg.finetune_seed,
     )
@@ -253,6 +292,8 @@ def main(argv: List[str] | None = None) -> None:
     cli_args = parser.parse_args(argv)
     config = load_config(cli_args.config)
 
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+
     _validate_config(config)
     _log_startup(config)
 
@@ -262,7 +303,8 @@ def main(argv: List[str] | None = None) -> None:
         _init_distributed_if_needed()
 
     if is_primary_process():
-        print("\n1. Loading model and tokenizer...")
+        logger.info("")
+        logger.info("1. Loading model and tokenizer...")
     model, tokenizer = setup_model_and_tokenizer(
         config.model.name,
         use_lora=config.model.use_lora,
@@ -275,7 +317,8 @@ def main(argv: List[str] | None = None) -> None:
     )
 
     if is_primary_process():
-        print("\n2. Loading and preparing dataset...")
+        logger.info("")
+        logger.info("2. Loading and preparing dataset...")
 
     train_dataset, eval_dataset = _prepare_datasets(config, tokenizer)
 
@@ -293,7 +336,8 @@ def main(argv: List[str] | None = None) -> None:
 
     if config.training.regular:
         if is_primary_process():
-            print("\n3. Initialising regular trainer...")
+            logger.info("")
+            logger.info("3. Initialising regular trainer...")
         trainer = Trainer(
             model=model,
             args=training_args,
@@ -305,7 +349,8 @@ def main(argv: List[str] | None = None) -> None:
         )
     else:
         if is_primary_process():
-            print("\n3. Initialising representation trainer...")
+            logger.info("")
+            logger.info("3. Initialising representation trainer...")
         trainer = RepresentationTrainer(
             model=model,
             args=training_args,
@@ -323,31 +368,33 @@ def main(argv: List[str] | None = None) -> None:
         )
 
     if is_primary_process() and config.model.use_lora:
-        print("=== PEFT Model Check ===")
+        logger.info("=== PEFT Model Check ===")
         model.print_trainable_parameters()
         trainable_params = [
             name for name, parameter in model.named_parameters() if parameter.requires_grad
         ]
-        print(f"Trainable parameters: {len(trainable_params)}")
+        logger.info("Trainable parameters: %s", len(trainable_params))
         if not trainable_params:
-            print("ERROR: No parameters require gradients!")
+            logger.error("ERROR: No parameters require gradients!")
         else:
-            print("First few trainable params:", trainable_params[:5])
+            logger.info("First few trainable params: %s", trainable_params[:5])
 
     if is_primary_process():
-        print("\n4. Starting training...")
+        logger.info("")
+        logger.info("4. Starting training...")
     try:
         trainer.train()
     except Exception as error:
         if is_primary_process():
-            print(f"Training failed with error: {error}")
-            print(
+            logger.error("Training failed with error: %s", error)
+            logger.warning(
                 "This might be due to FSDP/sharding issues. Try running with LoRA enabled for a lighter configuration."
             )
         raise
 
     if is_primary_process():
-        print("\n5. Saving final model...")
+        logger.info("")
+        logger.info("5. Saving final model...")
 
     output_dir = Path(os.path.abspath(config.training.output_dir))
     retry_attempts = 3
@@ -359,15 +406,17 @@ def main(argv: List[str] | None = None) -> None:
             break
         except Exception as error:
             if is_primary_process():
-                print(f"Success Rate: Saving model encounter error: {error}")
+                logger.warning("Saving model encountered an error: %s", error)
             retry_attempts -= 1
             if retry_attempts <= 0:
                 raise
             time.sleep(10)
 
     if is_primary_process():
-        print(f"\n✅ Training completed! Model saved to {config.training.output_dir}")
-        print("\n🎉 Fine-tuning finished successfully!")
+        logger.info("")
+        logger.info("✅ Training completed! Model saved to %s", config.training.output_dir)
+        logger.info("")
+        logger.info("🎉 Fine-tuning finished successfully!")
 
 
 if __name__ == "__main__":

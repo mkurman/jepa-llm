@@ -85,6 +85,12 @@ class DatasetConfig:
     cache_dir: Optional[str] = None
     """Cache directory passed to ``datasets.load_dataset``."""
 
+    config_name: Optional[str] = None
+    """Optional dataset configuration name used with ``datasets.load_dataset``."""
+
+    train_split: Optional[str] = None
+    """Optional split identifier when pulling remote datasets."""
+
 
 @dataclass
 class TrainingConfig:
@@ -128,6 +134,26 @@ class TrainingConfig:
 
     memory_efficient: bool = False
     """Process sequences separately to lower VRAM usage."""
+
+    dtype: str = "bf16"
+    """Computation precision to request from the trainer (e.g. ``bf16`` or ``fp16``)."""
+
+    optimizer: str = "adamw_8bit"
+    """Optimiser identifier forwarded to ``TrainingArguments``."""
+
+    def __post_init__(self) -> None:
+        if self.additive_mask and self.memory_efficient:
+            raise ValueError("Additive masking and memory efficient modes are mutually exclusive")
+
+        self.learning_rate = float(self.learning_rate)
+
+        allowed_dtypes = {"bf16", "fp16", "float32"}
+        chosen = self.dtype.lower()
+        if chosen not in allowed_dtypes:
+            raise ValueError(
+                f"Unsupported dtype '{self.dtype}'. Expected one of: {', '.join(sorted(allowed_dtypes))}"
+            )
+        self.dtype = chosen
 
 
 @dataclass
