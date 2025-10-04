@@ -401,7 +401,7 @@ class RepresentationTrainer(Trainer):
         total_loss = self.gamma * lm_loss + self.lbd * jepa_loss
 
         if self.model.training:
-            total_loss = total_loss / 32
+            total_loss = total_loss / self.gradient_accumulation_steps
 
         if self.debug >= 1 and is_primary_process():
             if self.debug in [1, 2]:

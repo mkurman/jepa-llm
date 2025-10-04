@@ -96,13 +96,25 @@ def setup_model_and_tokenizer(
             config,
             torch_dtype=torch.bfloat16,
         )
-        rank = torch.distributed.get_rank()
-        device = torch.device(f"cuda:{rank}")
+        dist_available = torch.distributed.is_available()
+        dist_initialized = dist_available and torch.distributed.is_initialized()
+
+        if torch.cuda.is_available():
+            if dist_initialized:
+                rank = torch.distributed.get_rank()
+                device = torch.device(f"cuda:{rank}")
+            else:
+                device = torch.device("cuda:0")
+        else:
+            device = torch.device("cpu")
+
         model.to(device)
-        for parameter in model.parameters():
-            torch.distributed.broadcast(parameter.data, src=0)
-        for buffer in model.buffers():
-            torch.distributed.broadcast(buffer.data, src=0)
+
+        if dist_initialized and torch.distributed.get_world_size() > 1:
+            for parameter in model.parameters():
+                torch.distributed.broadcast(parameter.data, src=0)
+            for buffer in model.buffers():
+                torch.distributed.broadcast(buffer.data, src=0)
         if debug == 6:
             for name, parameter in model.named_parameters():
                 print(f"Parameter name: {name}, Shape: {parameter.shape}")
