@@ -17,6 +17,9 @@ dataset:
   eval_split: 0.2
   split_seed: 42
   max_items: null
+  max_eval_items: null
+  config_name: null
+  train_split: null
   max_length: 512
   predictors: 0
   train_all: false
@@ -38,3 +41,5 @@ training:
   track_flop: false
   additive_mask: false
   memory_efficient: false
+  dtype: bf16
+  optimizer: adamw_8bit

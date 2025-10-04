@@ -67,6 +67,9 @@ class DatasetConfig:
     max_items: Optional[int] = None
     """Limit the number of samples drawn from the dataset (useful for debugging)."""
 
+    max_eval_items: Optional[int] = None
+    """Optional cap applied to the evaluation dataset length."""
+
     max_length: int = 512
     """Maximum sequence length for tokenisation."""
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import Optional, Tuple
 
@@ -10,6 +11,9 @@ from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 from peft import LoraConfig, TaskType, get_peft_model
 
 from .utils import is_primary_process
+
+
+logger = logging.getLogger(__name__)
 
 
 SPECIAL_TOKENS = [
@@ -68,13 +72,13 @@ def setup_model_and_tokenizer(
     if "microsoft/phi" in model_name:
         tokenizer.add_special_tokens({"bos_token": "<|startoftext|>"})
         if is_primary_process():
-            print("Added <|startoftext|> token")
+            logger.info("Added <|startoftext|> token")
 
     new_tokens = [token for token in SPECIAL_TOKENS if token not in tokenizer.vocab]
     if new_tokens:
         tokenizer.add_special_tokens({"additional_special_tokens": new_tokens})
         if is_primary_process():
-            print(f"Added {len(new_tokens)} new special tokens")
+            logger.info("Added %d new special tokens", len(new_tokens))
 
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
@@ -117,8 +121,10 @@ def setup_model_and_tokenizer(
                 torch.distributed.broadcast(buffer.data, src=0)
         if debug == 6:
             for name, parameter in model.named_parameters():
-                print(f"Parameter name: {name}, Shape: {parameter.shape}")
-                print(parameter)
+                logger.debug(
+                    "Parameter name: %s, Shape: %s", name, parameter.shape
+                )
+                logger.debug("%s", parameter)
                 raise SystemExit(0)
     else:
         model = AutoModelForCausalLM.from_pretrained(

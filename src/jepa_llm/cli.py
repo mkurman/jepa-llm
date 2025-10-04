@@ -148,6 +148,12 @@ def _prepare_datasets(config: Config, tokenizer) -> Tuple[object, object]:
             config_name=dataset_cfg.config_name,
         )
 
+        eval_limit = (
+            dataset_cfg.max_eval_items
+            if dataset_cfg.max_eval_items is not None
+            else dataset_cfg.max_items
+        )
+
         if dataset_cfg.eval_file:
             if is_primary_process():
                 logger.info("Loading evaluation data from %s", dataset_cfg.eval_file)
@@ -161,7 +167,7 @@ def _prepare_datasets(config: Config, tokenizer) -> Tuple[object, object]:
                 regular=training_cfg.regular,
                 train_all=dataset_cfg.train_all,
                 plain=dataset_cfg.plain,
-                max_items=dataset_cfg.max_items,
+                max_items=eval_limit,
                 seed=general_cfg.finetune_seed,
                 remove_thinking=dataset_cfg.remove_thinking,
                 cache_dir=dataset_cfg.cache_dir,
@@ -209,6 +215,12 @@ def _prepare_datasets(config: Config, tokenizer) -> Tuple[object, object]:
             )
             train_dataset = split_dataset["train"]
             eval_dataset = split_dataset["test"]
+            if dataset_cfg.max_eval_items is not None:
+                eval_dataset = eval_dataset.select(
+                    range(
+                        min(len(eval_dataset), dataset_cfg.max_eval_items)
+                    )
+                )
         else:
             train_dataset = full_dataset
             eval_dataset = None

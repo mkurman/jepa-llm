@@ -4,11 +4,16 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
+import logging
+
 import torch
 import torch.nn.functional as F
 from transformers import Trainer
 
 from ..utils import is_primary_process
+
+
+logger = logging.getLogger(__name__)
 
 
 class RepresentationTrainer(Trainer):
@@ -39,8 +44,8 @@ class RepresentationTrainer(Trainer):
         result_indices = torch.clamp(result_indices, 0, seq_len - 1)
 
         if self.debug == 1 and is_primary_process():
-            print(f"Last valid positions: {last_valid_positions}")
-            print(f"Result indices: {result_indices}")
+            logger.debug("Last valid positions: %s", last_valid_positions)
+            logger.debug("Result indices: %s", result_indices)
 
         return result_indices
 
@@ -65,7 +70,9 @@ class RepresentationTrainer(Trainer):
 
         return masks
 
-    def build_with_additive_mask_optimized(self, inputs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+    def build_with_additive_mask_optimized(
+        self, inputs: Dict[str, torch.Tensor]
+    ) -> Dict[str, torch.Tensor]:
         batch_size = inputs["input_ids"].shape[0]
         seq_length = inputs["input_ids"].shape[-1]
         device = inputs["input_ids"].device
@@ -122,8 +129,12 @@ class RepresentationTrainer(Trainer):
             (total_batch_size, 1, seq_length, seq_length), -torch.inf, device=device
         )
 
-        main_masks = self._build_additive_mask_vectorized(main_lengths, seq_length, device)
-        user_masks = self._build_additive_mask_vectorized(user_lengths, seq_length, device)
+        main_masks = self._build_additive_mask_vectorized(
+            main_lengths, seq_length, device
+        )
+        user_masks = self._build_additive_mask_vectorized(
+            user_lengths, seq_length, device
+        )
 
         attention_mask[:batch_size, 0] = main_masks
         attention_mask[batch_size:, 0] = user_masks
@@ -149,14 +160,12 @@ class RepresentationTrainer(Trainer):
 
         user_inputs = {
             "input_ids": inputs["input_ids_user"],
-            "labels": inputs["labels_user"],
             "attention_mask": inputs["attention_mask_user"],
         }
         user_outputs = model(**user_inputs, output_hidden_states=True)
 
         assistant_inputs = {
             "input_ids": inputs["input_ids_assistant"],
-            "labels": inputs["labels_assistant"],
             "attention_mask": inputs["attention_mask_assistant"],
         }
         assistant_outputs = model(**assistant_inputs, output_hidden_states=True)
@@ -165,12 +174,15 @@ class RepresentationTrainer(Trainer):
         assistant_hidden_states = assistant_outputs.hidden_states[-1]
 
         if self.debug == 2 and is_primary_process():
-            print(f"=====main_outputs.loss.shape:{main_outputs.loss.shape}=====")
-            print(f"=====user_outputs.loss.shape:{user_outputs.loss.shape}=====")
-            print(f"=====assistant_outputs.loss.shape:{assistant_outputs.loss.shape}=====")
-            print(f"=====user_hidden_states.shape:{user_hidden_states.shape}=====")
-            print(
-                f"=====assistant_hidden_states.shape:{assistant_hidden_states.shape}====="
+            logger.debug(
+                "=====main_outputs.loss.shape:%s=====", main_outputs.loss.shape
+            )
+            logger.debug(
+                "=====user_hidden_states.shape:%s=====", user_hidden_states.shape
+            )
+            logger.debug(
+                "=====assistant_hidden_states.shape:%s=====",
+                assistant_hidden_states.shape,
             )
 
         return {
@@ -233,30 +245,34 @@ class RepresentationTrainer(Trainer):
         if self.debug >= 2 and is_primary_process():
             if self.debug == 7:
                 torch.set_printoptions(threshold=float("inf"), linewidth=360)
-                print(">>>input_ids<<<")
-                print(llm_inputs["input_ids"])
-                print(">>>labels<<<")
-                print(llm_inputs["labels"])
-                print(">>>attention_mask<<<")
-                print(llm_inputs["attention_mask"])
+                logger.debug(">>>input_ids<<<")
+                logger.debug("%s", llm_inputs["input_ids"])
+                logger.debug(">>>labels<<<")
+                logger.debug("%s", llm_inputs["labels"])
+                logger.debug(">>>attention_mask<<<")
+                logger.debug("%s", llm_inputs["attention_mask"])
                 if self.additive_mask:
-                    print(">>>last_token_user<<<")
-                    print(self._last_token_user)
-                    print(">>>last_token_assistant<<<")
-                    print(self._last_token_assistant)
+                    logger.debug(">>>last_token_user<<<")
+                    logger.debug("%s", self._last_token_user)
+                    logger.debug(">>>last_token_assistant<<<")
+                    logger.debug("%s", self._last_token_assistant)
                 raise SystemExit(0)
             elif self.debug == 2:
-                print("=====before:outputs=====")
-                print(f"input_ids shape: {llm_inputs['input_ids'].shape}")
-                print(f"labels shape: {llm_inputs['labels'].shape}")
-                print(f"attention_mask shape: {llm_inputs['attention_mask'].shape}")
+                logger.debug("=====before:outputs=====")
+                logger.debug("input_ids shape: %s", llm_inputs["input_ids"].shape)
+                logger.debug("labels shape: %s", llm_inputs["labels"].shape)
+                logger.debug(
+                    "attention_mask shape: %s",
+                    llm_inputs["attention_mask"].shape,
+                )
 
         outputs = model(**llm_inputs, output_hidden_states=True)
 
         if self.debug == 2 and is_primary_process():
-            print(f"=====outputs.loss.shape:{outputs.loss.shape}=====")
-            print(
-                f"=====outputs.hidden_states[-1].shape:{outputs.hidden_states[-1].shape}====="
+            logger.debug("=====outputs.loss.shape:%s=====", outputs.loss.shape)
+            logger.debug(
+                "=====outputs.hidden_states[-1].shape:%s=====",
+                outputs.hidden_states[-1].shape,
             )
 
         hidden_states = outputs.hidden_states[-1]
@@ -270,8 +286,8 @@ class RepresentationTrainer(Trainer):
             assistant_hidden_states = hidden_states[2 * batch_size :]
 
         if self.debug == 2 and is_primary_process():
-            print(f"====={user_hidden_states.shape}=====")
-            print(f"====={assistant_hidden_states.shape}=====")
+            logger.debug("=====%s=====", user_hidden_states.shape)
+            logger.debug("=====%s=====", assistant_hidden_states.shape)
 
         return {
             "main_outputs": outputs,
@@ -302,12 +318,24 @@ class RepresentationTrainer(Trainer):
             )
 
         if self.debug == 1 and is_primary_process():
-            print("=====last tokens=====")
+            logger.debug("=====last tokens=====")
             batch_indices = torch.arange(batch_size)
-            print(inputs["input_ids_user"][batch_indices, index_user])
-            print(inputs["input_ids_user"][batch_indices, index_user - 1])
-            print(inputs["input_ids_assistant"][batch_indices, index_assistant])
-            print(inputs["input_ids_assistant"][batch_indices, index_assistant - 1])
+            logger.debug(
+                "%s",
+                inputs["input_ids_user"][batch_indices, index_user],
+            )
+            logger.debug(
+                "%s",
+                inputs["input_ids_user"][batch_indices, index_user - 1],
+            )
+            logger.debug(
+                "%s",
+                inputs["input_ids_assistant"][batch_indices, index_assistant],
+            )
+            logger.debug(
+                "%s",
+                inputs["input_ids_assistant"][batch_indices, index_assistant - 1],
+            )
 
         forward_results = self.forward(model, inputs)
 
@@ -329,9 +357,9 @@ class RepresentationTrainer(Trainer):
         )
 
         if self.debug == 1 and is_primary_process():
-            print(f"User embedding shape: {user_embedding.shape}")
-            print(f"Assistant embedding shape: {assistant_embedding.shape}")
-            print(f"Cosine similarity shape: {cosine_similarity.shape}")
+            logger.debug("User embedding shape: %s", user_embedding.shape)
+            logger.debug("Assistant embedding shape: %s", assistant_embedding.shape)
+            logger.debug("Cosine similarity shape: %s", cosine_similarity.shape)
 
         jepa_loss = 1.0 - cosine_similarity.mean()
         total_loss = self.gamma * lm_loss + self.lbd * jepa_loss
@@ -341,13 +369,17 @@ class RepresentationTrainer(Trainer):
 
         if self.debug >= 1 and is_primary_process():
             if self.debug in [1, 2]:
-                print(
-                    f"LM loss: {lm_loss.item():.4f}, JEPA loss: {jepa_loss.item():.4f}"
+                logger.info(
+                    "LM loss: %.4f, JEPA loss: %.4f",
+                    lm_loss.item(),
+                    jepa_loss.item(),
                 )
                 raise SystemExit(0)
             elif self.debug == 5:
-                print(
-                    f"llm_loss: {lm_loss.float():.4f}, jepa_loss: {jepa_loss.float():.4f}"
+                logger.debug(
+                    "llm_loss: %.4f, jepa_loss: %.4f",
+                    lm_loss.float(),
+                    jepa_loss.float(),
                 )
 
         return (total_loss, main_outputs) if return_outputs else total_loss
@@ -369,12 +401,24 @@ class RepresentationTrainer(Trainer):
         )
 
         if self.debug == 1 and is_primary_process():
-            print("=====last tokens (memory efficient)=====")
+            logger.debug("=====last tokens (memory efficient)=====")
             batch_indices = torch.arange(batch_size)
-            print(inputs["input_ids_user"][batch_indices, index_user])
-            print(inputs["input_ids_user"][batch_indices, index_user - 1])
-            print(inputs["input_ids_assistant"][batch_indices, index_assistant])
-            print(inputs["input_ids_assistant"][batch_indices, index_assistant - 1])
+            logger.debug(
+                "%s",
+                inputs["input_ids_user"][batch_indices, index_user],
+            )
+            logger.debug(
+                "%s",
+                inputs["input_ids_user"][batch_indices, index_user - 1],
+            )
+            logger.debug(
+                "%s",
+                inputs["input_ids_assistant"][batch_indices, index_assistant],
+            )
+            logger.debug(
+                "%s",
+                inputs["input_ids_assistant"][batch_indices, index_assistant - 1],
+            )
 
         forward_results = self.forward_memory_efficient(model, inputs)
 
@@ -393,9 +437,9 @@ class RepresentationTrainer(Trainer):
         )
 
         if self.debug == 1 and is_primary_process():
-            print(f"User embedding shape: {user_embedding.shape}")
-            print(f"Assistant embedding shape: {assistant_embedding.shape}")
-            print(f"Cosine similarity shape: {cosine_similarity.shape}")
+            logger.debug("User embedding shape: %s", user_embedding.shape)
+            logger.debug("Assistant embedding shape: %s", assistant_embedding.shape)
+            logger.debug("Cosine similarity shape: %s", cosine_similarity.shape)
 
         jepa_loss = 1.0 - cosine_similarity.mean()
         total_loss = self.gamma * lm_loss + self.lbd * jepa_loss
@@ -405,18 +449,25 @@ class RepresentationTrainer(Trainer):
 
         if self.debug >= 1 and is_primary_process():
             if self.debug in [1, 2]:
-                print(
-                    f"LM loss (avg): {lm_loss.item():.4f}, JEPA loss: {jepa_loss.item():.4f}"
+                logger.info(
+                    "LM loss (avg): %.4f, JEPA loss: %.4f",
+                    lm_loss.item(),
+                    jepa_loss.item(),
                 )
-                print(f"Main loss: {main_outputs.loss.item():.4f}")
-                print(f"User loss: {forward_results['user_outputs'].loss.item():.4f}")
-                print(
-                    f"Assistant loss: {forward_results['assistant_outputs'].loss.item():.4f}"
+                logger.info("Main loss: %.4f", main_outputs.loss.item())
+                logger.info(
+                    "User loss: %.4f", forward_results["user_outputs"].loss.item()
+                )
+                logger.info(
+                    "Assistant loss: %.4f",
+                    forward_results["assistant_outputs"].loss.item(),
                 )
                 raise SystemExit(0)
             elif self.debug == 5:
-                print(
-                    f"llm_loss: {lm_loss.float():.4f}, jepa_loss: {jepa_loss.float():.4f}"
+                logger.debug(
+                    "llm_loss: %.4f, jepa_loss: %.4f",
+                    lm_loss.float(),
+                    jepa_loss.float(),
                 )
 
         return (total_loss, main_outputs) if return_outputs else total_loss

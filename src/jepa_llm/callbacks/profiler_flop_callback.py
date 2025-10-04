@@ -4,11 +4,16 @@ from __future__ import annotations
 
 from typing import Any
 
+import logging
+
 import torch
 from torch.profiler import ProfilerActivity, profile
 from transformers import TrainerCallback
 
 from ..utils import is_primary_process
+
+
+logger = logging.getLogger(__name__)
 
 
 class ProfilerFLOPCallback(TrainerCallback):
@@ -35,7 +40,9 @@ class ProfilerFLOPCallback(TrainerCallback):
             self.total_flops += step_flops
 
             if is_primary_process() and state.global_step == 1:
-                print(f"Step {state.global_step}: FLOPs: {step_flops:,.0f}")
+                logger.info(
+                    "Step %d: FLOPs: %,d", state.global_step, int(step_flops)
+                )
 
 
 __all__ = ["ProfilerFLOPCallback"]

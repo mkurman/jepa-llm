@@ -5,6 +5,8 @@ from __future__ import annotations
 from functools import partial
 from typing import Any, Dict, List, Optional, Sequence, Set
 
+import logging
+
 import torch
 from datasets import Dataset, load_dataset
 from transformers import PreTrainedTokenizerBase
@@ -14,6 +16,9 @@ from .text_cleanup import remove_thinking_content
 from .utils import is_primary_process
 
 Message = Dict[str, str]
+
+
+logger = logging.getLogger(__name__)
 
 
 INPUT_COLUMN_CANDIDATES = [
@@ -81,9 +86,9 @@ def create_masked_labels(
                 break
 
         if debug == 4 and is_primary_process():
-            print(f"assistant_tokens: {assistant_tokens}")
-            print(f"decoded assistant: {decoded_assistant}")
-            print(f"decoded input: {decoded_input}")
+            logger.debug("assistant_tokens: %s", assistant_tokens)
+            logger.debug("decoded assistant: %s", decoded_assistant)
+            logger.debug("decoded input: %s", decoded_input)
             torch.cuda.synchronize()
             raise SystemExit(0)
 
@@ -206,21 +211,22 @@ def _tokenize_conversations(
         assistant_attention_mask_list.append(tokenized_assistant["attention_mask"])
 
         if debug == 3 and is_primary_process():
-            print(messages)
-            print(input_ids_list)
-            print(tokenizer.decode(input_ids_list[0]))
-            print(labels_list)
-            print(
-                tokenizer.decode(
-                    [item for item in labels_list[0] if item != -100]
-                )
+            logger.debug("messages: %s", messages)
+            logger.debug("input_ids_list: %s", input_ids_list)
+            logger.debug("decoded first input_ids: %s", tokenizer.decode(input_ids_list[0]))
+            logger.debug("labels_list: %s", labels_list)
+            logger.debug(
+                "decoded labels: %s",
+                tokenizer.decode([item for item in labels_list[0] if item != -100]),
             )
-            print(attention_mask_list)
-            print("user Token IDs:", tokenized_user["input_ids"])
-            print("user Decoded:", tokenizer.decode(tokenized_user["input_ids"]))
-            print("assistant Token IDs:", tokenized_assistant["input_ids"])
-            print(
-                "assistant Decoded:",
+            logger.debug("attention_mask_list: %s", attention_mask_list)
+            logger.debug("user Token IDs: %s", tokenized_user["input_ids"])
+            logger.debug(
+                "user Decoded: %s", tokenizer.decode(tokenized_user["input_ids"])
+            )
+            logger.debug("assistant Token IDs: %s", tokenized_assistant["input_ids"])
+            logger.debug(
+                "assistant Decoded: %s",
                 tokenizer.decode(tokenized_assistant["input_ids"]),
             )
             raise SystemExit(0)
@@ -283,7 +289,7 @@ def load_and_prepare_dataset(
         dataset = load_dataset(data_file, **extra_kwargs)
 
     if is_primary_process():
-        print(f"Loaded {len(dataset)} examples from {data_file}")
+        logger.info("Loaded %d examples from %s", len(dataset), data_file)
 
     dataset = _ensure_messages_column(dataset)
 
