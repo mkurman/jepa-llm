@@ -26,6 +26,9 @@ dataset:
   plain: false
   remove_thinking: true
   cache_dir: null
+  preprocess_num_proc: 24
+  tokenize_num_proc: 12
+  tokenize_batch_size: 1000
 
 training:
   output_dir: ./artifacts/llama3

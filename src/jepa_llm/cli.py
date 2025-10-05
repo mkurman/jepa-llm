@@ -146,6 +146,9 @@ def _prepare_datasets(config: Config, tokenizer) -> Tuple[object, object]:
                 dataset_cfg.train_file, dataset_cfg.train_split, default="train"
             ),
             config_name=dataset_cfg.config_name,
+            preprocess_num_proc=dataset_cfg.preprocess_num_proc,
+            tokenize_num_proc=dataset_cfg.tokenize_num_proc,
+            tokenize_batch_size=dataset_cfg.tokenize_batch_size,
         )
 
         eval_limit = (
@@ -175,6 +178,9 @@ def _prepare_datasets(config: Config, tokenizer) -> Tuple[object, object]:
                     dataset_cfg.eval_file, None, default="test"
                 ),
                 config_name=dataset_cfg.config_name,
+                preprocess_num_proc=dataset_cfg.preprocess_num_proc,
+                tokenize_num_proc=dataset_cfg.tokenize_num_proc,
+                tokenize_batch_size=dataset_cfg.tokenize_batch_size,
             )
         else:
             eval_dataset = None
@@ -205,6 +211,9 @@ def _prepare_datasets(config: Config, tokenizer) -> Tuple[object, object]:
                 dataset_cfg.data_file, dataset_cfg.train_split, default="train"
             ),
             config_name=dataset_cfg.config_name,
+            preprocess_num_proc=dataset_cfg.preprocess_num_proc,
+            tokenize_num_proc=dataset_cfg.tokenize_num_proc,
+            tokenize_batch_size=dataset_cfg.tokenize_batch_size,
         )
 
         if dataset_cfg.eval_split > 0:

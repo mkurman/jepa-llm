@@ -267,6 +267,9 @@ def load_and_prepare_dataset(
     cache_dir: Optional[str] = None,
     dataset_split: Optional[str] = None,
     config_name: Optional[str] = None,
+    preprocess_num_proc: int = 24,
+    tokenize_num_proc: int = 12,
+    tokenize_batch_size: int = 1000,
 ) -> Dataset:
     """Load the dataset file and return tokenized conversations."""
 
@@ -297,11 +300,11 @@ def load_and_prepare_dataset(
 
     dataset = dataset.map(
         clean_fn,
-        num_proc=24,
+        num_proc=preprocess_num_proc,
     ).filter(
         lambda record: record["messages"] is not None
         and all(message["content"] for message in record["messages"]),
-        num_proc=24,
+        num_proc=preprocess_num_proc,
     )
 
     dataset = dataset.shuffle(seed=seed)
@@ -324,9 +327,9 @@ def load_and_prepare_dataset(
     tokenized_dataset = dataset.map(
         map_fn,
         batched=True,
-        batch_size=1000,
+        batch_size=tokenize_batch_size,
         remove_columns=dataset.column_names,
-        num_proc=12,
+        num_proc=tokenize_num_proc,
     )
 
     return tokenized_dataset

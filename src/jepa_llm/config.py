@@ -94,6 +94,15 @@ class DatasetConfig:
     train_split: Optional[str] = None
     """Optional split identifier when pulling remote datasets."""
 
+    preprocess_num_proc: int = 24
+    """Parallel workers used for cleaning and filtering the raw dataset."""
+
+    tokenize_num_proc: int = 12
+    """Parallel workers used during tokenisation mapping."""
+
+    tokenize_batch_size: int = 1000
+    """Batch size passed to the batched tokenisation map step."""
+
 
 @dataclass
 class TrainingConfig:

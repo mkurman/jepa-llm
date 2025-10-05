@@ -89,6 +89,9 @@ parameters:
 - `plain` — bypass the chat template and feed raw message text to the tokenizer.
 - `remove_thinking` — strip hidden reasoning tags like `<think>` before tokenising.
 - `cache_dir` — location where dataset artefacts should be cached.
+- `preprocess_num_proc` — worker processes used during cleaning/filtering.
+- `tokenize_num_proc` — worker processes used during the tokenisation map step.
+- `tokenize_batch_size` — batch size applied to the batched tokenisation map step.
 
 ### `training`
 
