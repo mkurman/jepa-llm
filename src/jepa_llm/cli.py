@@ -150,7 +150,9 @@ def _maybe_init_wandb(config: Config) -> None:
         "tags": general_cfg.wandb_tags,
         "config": asdict(config),
     }
-    init_kwargs = {key: value for key, value in init_kwargs.items() if value is not None}
+    init_kwargs = {
+        key: value for key, value in init_kwargs.items() if value is not None
+    }
 
     if getattr(wandb, "run", None) is not None:
         wandb.config.update(asdict(config), allow_val_change=True)
@@ -222,6 +224,20 @@ def _prepare_datasets(config: Config, tokenizer) -> Tuple[object, object]:
                 tokenize_num_proc=dataset_cfg.tokenize_num_proc,
                 tokenize_batch_size=dataset_cfg.tokenize_batch_size,
             )
+        elif dataset_cfg.eval_split is not None and dataset_cfg.eval_split > 0:
+            if is_primary_process():
+                logger.info(
+                    "Splitting training data to create evaluation set (%.1f%%)",
+                    dataset_cfg.eval_split * 100,
+                )
+            train_dataset = train_dataset.train_test_split(
+                test_size=dataset_cfg.eval_split,
+                seed=dataset_cfg.split_seed,
+                shuffle=True,
+            )
+
+            eval_dataset = train_dataset["test"]
+            train_dataset = train_dataset["train"]
         else:
             eval_dataset = None
             if is_primary_process():
@@ -266,9 +282,7 @@ def _prepare_datasets(config: Config, tokenizer) -> Tuple[object, object]:
             eval_dataset = split_dataset["test"]
             if dataset_cfg.max_eval_items is not None:
                 eval_dataset = eval_dataset.select(
-                    range(
-                        min(len(eval_dataset), dataset_cfg.max_eval_items)
-                    )
+                    range(min(len(eval_dataset), dataset_cfg.max_eval_items))
                 )
         else:
             train_dataset = full_dataset
