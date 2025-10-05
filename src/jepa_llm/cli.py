@@ -7,6 +7,7 @@ import logging
 import os
 import shutil
 import time
+from dataclasses import asdict
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -117,6 +118,45 @@ def _init_distributed_if_needed() -> None:
             )
         torch.distributed.init_process_group(backend="nccl")
         torch.cuda.set_device(local_rank)
+
+
+def _maybe_init_wandb(config: Config) -> None:
+    general_cfg = config.general
+
+    if not general_cfg.use_wandb:
+        os.environ.setdefault("WANDB_SILENT", "true")
+        return
+
+    try:
+        import wandb  # type: ignore
+    except ImportError as exc:  # pragma: no cover - defensive guard
+        raise RuntimeError(
+            "Weights & Biases logging requested but the 'wandb' package is not installed. "
+            "Install it with 'pip install wandb'."
+        ) from exc
+
+    if not is_primary_process():
+        os.environ.setdefault("WANDB_MODE", "offline")
+        return
+
+    if general_cfg.wandb_mode:
+        os.environ.setdefault("WANDB_MODE", general_cfg.wandb_mode)
+
+    init_kwargs = {
+        "project": general_cfg.wandb_project,
+        "name": general_cfg.wandb_run_name,
+        "entity": general_cfg.wandb_entity,
+        "group": general_cfg.wandb_group,
+        "tags": general_cfg.wandb_tags,
+        "config": asdict(config),
+    }
+    init_kwargs = {key: value for key, value in init_kwargs.items() if value is not None}
+
+    if getattr(wandb, "run", None) is not None:
+        wandb.config.update(asdict(config), allow_val_change=True)
+        return
+
+    wandb.init(**init_kwargs)
 
 
 def _prepare_datasets(config: Config, tokenizer) -> Tuple[object, object]:
@@ -262,6 +302,8 @@ def _create_training_arguments(
     bf16_full_eval = use_bf16
     use_tf32 = dtype == "float32"
 
+    report_to = "wandb" if general_cfg.use_wandb else "none"
+
     return TrainingArguments(
         output_dir=output_dir,
         overwrite_output_dir=True,
@@ -287,7 +329,7 @@ def _create_training_arguments(
         ddp_backend=ddp_backend,
         fsdp="",
         fsdp_config={},
-        report_to="none",
+        report_to=report_to,
         remove_unused_columns=False,
         load_best_model_at_end=has_eval,
         tf32=use_tf32,
@@ -328,6 +370,8 @@ def main(argv: List[str] | None = None) -> None:
 
     if world_size > 1:
         _init_distributed_if_needed()
+
+    _maybe_init_wandb(config)
 
     if is_primary_process():
         logger.info("")

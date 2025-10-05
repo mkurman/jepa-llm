@@ -21,6 +21,27 @@ class GeneralConfig:
     finetune_seed: int = 42
     """Random seed applied to dataset shuffling and trainer setup."""
 
+    use_wandb: bool = False
+    """Enable Weights & Biases logging when ``True``."""
+
+    wandb_project: Optional[str] = "jepa-llm"
+    """Project name used when initialising Weights & Biases."""
+
+    wandb_run_name: Optional[str] = None
+    """Optional explicit run name for Weights & Biases."""
+
+    wandb_entity: Optional[str] = None
+    """Optional entity or team under which the run is recorded."""
+
+    wandb_group: Optional[str] = None
+    """Optional group label for aggregating related runs."""
+
+    wandb_tags: Optional[list[str]] = None
+    """Optional list of tags applied to the run."""
+
+    wandb_mode: str = "online"
+    """Execution mode forwarded to ``WANDB_MODE`` (e.g. ``online`` or ``offline``)."""
+
 
 @dataclass
 class ModelConfig:

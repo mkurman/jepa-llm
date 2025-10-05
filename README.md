@@ -57,6 +57,15 @@ parameters:
 
 - `debug` — increases logging verbosity when set to a truthy value.
 - `finetune_seed` — random seed forwarded to dataset shuffling and training.
+- `use_wandb` — toggles Weights & Biases logging.
+- `wandb_project` — project name for Weights & Biases runs (defaults to
+  `jepa-llm`).
+- `wandb_run_name` — optional explicit run name.
+- `wandb_entity` — optional entity or team where the run is recorded.
+- `wandb_group` — optional grouping label for multiple related runs.
+- `wandb_tags` — optional list of tags applied to each run.
+- `wandb_mode` — forwarded to `WANDB_MODE` to switch between `online`,
+  `offline`, etc.
 
 ### `model`
 
